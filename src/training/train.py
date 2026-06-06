@@ -473,7 +473,7 @@ def main(dataset, task, resume_training=False, batch_size=32, lazy: bool = False
 if __name__ == "__main__":
     dataset = "50K"
     task = "5x2_configs"
-    path = f'./model_{dataset}_{task}_test2_testversion_0.140625-0.453125'
+    path = f'./model_{dataset}_{task}_test3_CNO_1dinterp'
     model_path = None
     os.makedirs(path, exist_ok=True)
     main(dataset=dataset, task=task, batch_size=32, lazy=True, test=False,
@@ -482,6 +482,6 @@ if __name__ == "__main__":
          split_ratio=0.9, seed=114514,
          enable_tensorboard=False, tensorboard_log_dir=None, tensorboard_histograms=False,
          log_period=50,
-         enable_swanlab=True, swanlab_project="Fourier-DeepONet-testversion", swanlab_experiment="0",
+         enable_swanlab=True, swanlab_project="Fourier-DeepONet-CNO", swanlab_experiment="0",
          model_test_version=True)
 

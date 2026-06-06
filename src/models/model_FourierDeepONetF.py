@@ -371,7 +371,6 @@ class decoder(nn.Module):
         self.hfs_patch_size = list(hfs_patch_size)
         #self.meta_dim = meta_dim
 
-        # === 核心层定义 ===
         self.conv0 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
         self.conv1 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)        
         self.conv2 = SpectralConv2d(self.width, self.width, self.modes1, self.modes2)
@@ -404,23 +403,6 @@ class decoder(nn.Module):
         #self.linear_R_2 = nn.Linear(128, 192)
         #self.linear_R_3 = nn.Linear(256, 384)
 
-        """self.resize_conv0 = nn.Sequential(
-            nn.Conv2d(self.width, self.width, kernel_size=3, padding=1, bias=False),
-            nn.GELU(approximate='tanh')
-        )
-        self.resize_conv1 = nn.Sequential(
-            nn.Conv2d(self.width, self.width, kernel_size=3, padding=1, bias=False),
-            nn.GELU(approximate='tanh')
-        )
-        self.resize_conv2 = nn.Sequential(
-            nn.Conv2d(self.width, self.width, kernel_size=3, padding=1, bias=False),
-            nn.GELU(approximate='tanh')
-        )
-        self.resize_conv3 = nn.Sequential(
-            nn.Conv2d(self.width, self.width, kernel_size=3, padding=1, bias=False),
-            nn.GELU(approximate='tanh')
-        )"""
-
         self.fc1 = nn.Linear(self.width, int(self.width * 2))
         self.fc2 = nn.Linear(int(self.width * 2), 1)
 
@@ -432,13 +414,6 @@ class decoder(nn.Module):
         self.gn_b2 = nn.GroupNorm(num_groups=32, num_channels=self.width)
         self.gn_b3 = nn.GroupNorm(num_groups=32, num_channels=self.width)
 
-    def _resize_and_conv(self, x, target_size, conv_layer):
-        #x = F.gelu(x, approximate="tanh")
-        # 1. 插值调整 H, W 
-        x = F.interpolate(x, size=target_size, mode='bilinear', align_corners=False)
-        # 2. 卷积处理特征
-        x = conv_layer(x)
-        return x
 
     def _linear_sampling(self, x, linear_last_dim, linear_receiver_dim):
         x = linear_last_dim(x)

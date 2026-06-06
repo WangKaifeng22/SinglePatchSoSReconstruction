@@ -212,7 +212,7 @@ class SwanLabCallback(Callback):
             name=self.experiment_name,
             logdir=self.log_dir,
             config=self.config,
-            mode="online",
+            mode="offline",
             resume="allow",
         )
         self._initialized = True

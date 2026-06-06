@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 from models.model_FourierDeepONetF import FourierDeepONet
 from models.model_FourierDeepONet import FourierDeepONet_Origin
 from models.model_FourierDeepONet_test import FourierDeepONet_test
+from models.model_FourierDeepONet_CNO import FourierDeepONet_CNO
 
 
 _FOURIER_ORIGINAL_ALLOWED_KEYS = {
@@ -52,7 +53,7 @@ def build_fourier_deeponet_variant(
     if original:
         return FourierDeepONet_Origin(**kwargs)
     elif test:
-        return FourierDeepONet_test(**kwargs)
+        return FourierDeepONet_CNO(**kwargs)
 
     kwargs.setdefault("use_hfs_block123", use_hfs_block123)
     kwargs.setdefault("hfs_patch_size", hfs_patch_size)
