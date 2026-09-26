@@ -7,7 +7,11 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 import torch
-
+import sys
+from pathlib import Path
+SRC_ROOT = Path(__file__).resolve().parents[1]
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 from utils.fourier_model_utils import build_fourier_deeponet_variant, is_original_fourier_deeponet_config
 
 
@@ -42,9 +46,11 @@ def _read_model_config(model_path: str, model_type: str) -> Tuple[str, Dict[str,
             model_init_kwargs = model_config.get("model_init_kwargs")
             data_cfg = model_config.get("data", None)
             is_original = is_original_fourier_deeponet_config(model_config)
+            is_test = model_config.get("test", False)
             print(f"Loaded model config from: {model_config_path}")
             print(f"Auto model_type from config: {model_type_raw}")
             print(f"Auto is_original from config: {is_original}")
+            print(f"is test: {is_test}")
         except Exception as exc:
             print(f"Warning: failed to read model_config.json: {exc}")
 
@@ -56,7 +62,7 @@ def _read_model_config(model_path: str, model_type: str) -> Tuple[str, Dict[str,
         "NIOUltrasoundCTAbl": "NIO",
     }
     model_type_final = model_type_alias.get(model_type_raw, model_type_raw)
-    return model_type_final, model_init_kwargs, data_cfg, is_original
+    return model_type_final, model_init_kwargs, data_cfg, is_original, is_test
 
 
 def _load_test_data(
@@ -71,8 +77,8 @@ def _load_test_data(
     cache_meta_path: str,
 ):
     import h5py
-    from test.test import _infer_sample_count, _load_full_h5_test_set, _load_full_h5_test_set_nio, _load_h5_meta
-    from train.train import samples_per_config as train_samples_per_config
+    from evaluation.test import _infer_sample_count, _load_full_h5_test_set, _load_full_h5_test_set_nio, _load_h5_meta
+    from training.train import samples_per_config as train_samples_per_config
 
     h5_meta = _load_h5_meta(cache_meta_path)
 
@@ -161,7 +167,7 @@ def _load_test_data(
     return X_test, sample_count, split_ratio
 
 
-def _build_model(model_type: str, model_init_kwargs: Dict[str, Any], X_test, device: torch.device, is_original: bool = False):
+def _build_model(model_type: str, model_init_kwargs: Dict[str, Any], X_test, device: torch.device, is_original: bool = False, is_test: bool = False):
     from models.InversionNet import InversionNet
     from models.model_BranchTrunkFlower import BranchTrunkFlower
     from utils.nio_build_utils import (
@@ -169,11 +175,11 @@ def _build_model(model_type: str, model_init_kwargs: Dict[str, Any], X_test, dev
         resolve_nio_branch_encoder_cls,
         resolve_nio_branch_encoder_kwargs,
     )
-    from train.train_NIO import build_nio
+    from training.train_NIO import build_nio
 
     if model_type in {"FourierDeepONet", "BranchTrunkFlower"}:
         if isinstance(model_init_kwargs, dict):
-            net = BranchTrunkFlower(**model_init_kwargs) if model_type == "BranchTrunkFlower" else build_fourier_deeponet_variant(model_init_kwargs, original=is_original)
+            net = BranchTrunkFlower(**model_init_kwargs) if model_type == "BranchTrunkFlower" else build_fourier_deeponet_variant(model_init_kwargs, original=is_original, test=is_test)
         else:
             trunk_dim = X_test[1].shape[1]
             if model_type == "BranchTrunkFlower":
@@ -239,7 +245,7 @@ def _run_benchmark(args):
         torch.cuda.empty_cache()
     gc.collect()
 
-    model_type, model_init_kwargs, data_cfg, is_original = _read_model_config(args.model_path, args.model_type)
+    model_type, model_init_kwargs, data_cfg, is_original, is_test = _read_model_config(args.model_path, args.model_type)
     X_test, sample_count, split_ratio = _load_test_data(
         model_type=model_type,
         model_init_kwargs=model_init_kwargs,
@@ -258,7 +264,7 @@ def _run_benchmark(args):
     if sample_count <= 0:
         raise ValueError("No test samples found.")
 
-    net = _build_model(model_type, model_init_kwargs, X_test, device, is_original=is_original)
+    net = _build_model(model_type, model_init_kwargs, X_test, device, is_original=is_original, is_test=is_test)
 
     checkpoint = torch.load(args.model_path, map_location=device)
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:

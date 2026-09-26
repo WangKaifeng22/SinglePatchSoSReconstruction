@@ -6,7 +6,10 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
+import sys
+SRC_ROOT = Path(__file__).resolve().parents[1]
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 import torch
 
 os.environ['DDE_BACKEND'] = 'pytorch'
@@ -20,7 +23,7 @@ from utils.nio_build_utils import (
     resolve_nio_branch_encoder_cls,
     resolve_nio_branch_encoder_kwargs,
 )
-from train.train_NIO import build_nio
+from training.train_NIO import build_nio
 
 
 MODEL_TYPE_MAP = {

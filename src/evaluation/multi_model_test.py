@@ -5,6 +5,12 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
+import sys
+from pathlib import Path
+SRC_ROOT = Path(__file__).resolve().parents[1]
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
 # 导入必要的模块，与 test.py 保持一致
 from utils.utils import minmax_denormalize, VMIN, VMAX
 from models.InversionNet import InversionNet
@@ -132,7 +138,7 @@ def get_predictions(model_info, data_kwargs, max_samples):
     return y_pred_real, y_true_real, sosmap_size
 
 
-def plot_multi_model_comparison(y_true, model_preds, model_names, sample_idx, save_path, sosmap_size, mm_per_pixel=1.0):
+def plot_multi_model_comparison_old(y_true, model_preds, model_names, sample_idx, save_path, sosmap_size, mm_per_pixel=1.0):
     """
     绘制多个模型的预测对比图。
     结构：3行 × (N+1)列 网格
@@ -147,9 +153,9 @@ def plot_multi_model_comparison(y_true, model_preds, model_names, sample_idx, sa
     fig, axes = plt.subplots(3, N + 1, figsize=(4 * N + 1, 12),
                              gridspec_kw={'width_ratios': [1] * N + [0.05]})
     
-    label_fontsize = 14
-    tick_fontsize = 14    # 刻度字体大小 
-    title_fontsize = 18   # 标题字体大小
+    label_fontsize = 18
+    tick_fontsize = 18    # 刻度字体大小 
+    title_fontsize = 22   # 标题字体大小
 
     extent = [0.0, sosmap_size[1] * mm_per_pixel, 0.0, sosmap_size[0] * mm_per_pixel]
     
@@ -223,6 +229,95 @@ def plot_multi_model_comparison(y_true, model_preds, model_names, sample_idx, sa
         
     plt.close(fig)
 
+def plot_multi_model_comparison(y_true, model_preds, model_names, sample_idx, save_path, sosmap_size, mm_per_pixel=1.0):
+    """
+    绘制多个模型的预测对比图（2行×4列）。
+    - 第1行第1列：Ground Truth
+    - 第1行第2~4列：各模型预测图
+    - 第2行第1列：空白
+    - 第2行第2~4列：各模型绝对误差图
+    - 颜色条放置在图形右侧外部（预测和误差各一个）
+    """
+    N = len(model_preds)
+    # 创建 2行4列 子图，适当调整图形尺寸
+    fig, axes = plt.subplots(2, 4, figsize=(4 * 4, 2 * 3.5))
+    plt.subplots_adjust(right=0.85)          # 为右侧颜色条预留空间
+
+    label_fontsize = 16
+    tick_fontsize = 18
+    title_fontsize = 18
+
+    extent = [0.0, sosmap_size[1] * mm_per_pixel, 0.0, sosmap_size[0] * mm_per_pixel]
+    true_2d = y_true[sample_idx].reshape(sosmap_size)
+
+    # 计算所有模型的误差，并确定误差图统一的最大值
+    errors = [np.abs(true_2d - pred[sample_idx].reshape(sosmap_size)) for pred in model_preds]
+    max_err = max([np.max(err) for err in errors]) if errors else 1e-5
+    max_err = max(max_err, 1e-5)
+
+    # ---------- 第1行第1列：Ground Truth ----------
+    ax_gt = axes[0, 0]
+    im_gt = ax_gt.imshow(true_2d, cmap='jet', vmin=VMIN, vmax=VMAX,
+                         origin='lower', extent=extent, aspect='auto')
+    ax_gt.set_title('Ground Truth', fontsize=title_fontsize)
+    ax_gt.set_ylabel('X (mm)', fontsize=label_fontsize)
+    ax_gt.set_xlabel('Y (mm)', fontsize=label_fontsize)
+    ax_gt.tick_params(axis='both', labelsize=tick_fontsize)
+
+    # ---------- 第2行第1列：留空 ----------
+    axes[1, 0].axis('off')
+
+    # 用于存储颜色条对应的 imshow 对象
+    im_pred = None
+    im_err = None
+
+    # ---------- 填充预测图和误差图 ----------
+    for i in range(N):
+        col = i + 1                       # 列索引 1,2,3
+        pred_2d = model_preds[i][sample_idx].reshape(sosmap_size)
+        err_2d = errors[i]
+
+        # 第1行：预测图
+        ax_pred = axes[0, col]
+        im_pred = ax_pred.imshow(pred_2d, cmap='jet', vmin=VMIN, vmax=VMAX,
+                                 origin='lower', extent=extent, aspect='auto')
+        ax_pred.set_title(model_names[i], fontsize=title_fontsize)
+        if col == 1:
+            ax_pred.set_ylabel('', fontsize=label_fontsize)
+        else:
+            ax_pred.set_ylabel('')
+        ax_pred.tick_params(axis='both', labelsize=tick_fontsize)
+
+        # 第2行：误差图
+        ax_err = axes[1, col]
+        im_err = ax_err.imshow(err_2d, cmap='inferno', vmin=0, vmax=max_err,
+                               origin='lower', extent=extent, aspect='auto')
+        ax_err.set_xlabel('Y (mm)', fontsize=label_fontsize)
+        if col == 1:
+            ax_err.set_ylabel('X (mm)', fontsize=label_fontsize)
+        else:
+            ax_err.set_ylabel('')
+        ax_err.tick_params(axis='both', labelsize=tick_fontsize)
+
+    # ---------- 添加外部颜色条 ----------
+    # 预测图颜色条（上）
+    cax_pred = fig.add_axes([0.88, 0.55, 0.02, 0.35])   # [左, 下, 宽, 高]
+    cbar_pred = fig.colorbar(im_pred, cax=cax_pred)
+    cbar_pred.set_label('Velocity (m/s)', fontsize=label_fontsize)
+    cbar_pred.ax.tick_params(labelsize=tick_fontsize)
+
+    # 误差图颜色条（下）
+    cax_err = fig.add_axes([0.88, 0.10, 0.02, 0.35])
+    cbar_err = fig.colorbar(im_err, cax=cax_err)
+    cbar_err.set_label('Absolute Error (m/s)', fontsize=label_fontsize)
+    cbar_err.ax.tick_params(labelsize=tick_fontsize)
+
+    # 保存或显示
+    if save_path:
+        plt.savefig(save_path, dpi=500, bbox_inches='tight')
+        print(f"Saved: {save_path}")
+    plt.close(fig)
+
 
 def main():
     # =============== 配置区域 ===============
@@ -242,7 +337,7 @@ def main():
             "path": "/home/wkf/wkf_kwave/src/model_50K_5x2_configs_InversionNet/model-298000.pt"
         },
         {
-            "name": "Neural Inverse Operator", 
+            "name": "NIO", 
             "type": "NIO", 
             "path": "/home/wkf/wkf_kwave/src/model_50K_5x2_configs_NIO_test1/model-254000.pt"
         },
@@ -253,7 +348,7 @@ def main():
         }
     ]
     
-    result_dir = "/home/wkf/wkf_kwave/Images/multi_model_comparisons_-F"
+    result_dir = "/home/wkf/wkf_kwave/Images/multi_model_comparisons_2r4c"
     samples_plot = 100 # <<< 这个变量现在控制画图数量，同时也限制模型推理数量
     mm_per_pixel = 0.1
     # =======================================

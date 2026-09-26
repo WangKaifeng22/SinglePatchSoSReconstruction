@@ -316,66 +316,30 @@ class ResUNet(nn.Module):
 class interp_2d(nn.Module):
     def __init__(self, in_channels, out_channels, in_size, out_size):
         super().__init__()
-        
-        self.h_in, self.w_in = in_size
-        self.h_out, self.w_out = out_size
+        self.in_size = in_size      # (H_in, W_in)
+        self.out_size = out_size    # (H_out, W_out)
         self.act = nn.GELU()
 
     def forward(self, x):
-        # 1. 预上采样：仅对需要放大的维度上采样到目标尺寸（或更高）
-        if self.h_out > self.h_in:
-            x = self.interpolate_1d(x, size=2 * self.h_in, dim=-2, mode='linear')
-        # W 无需上采样，保持原尺寸（其带宽已充足）
-
-        # 2. 激活（在高分辨率下）
-        x = self.act(x)
-
-        # 3. 下采样：对所有需要缩小的维度进行 1D 带低通下采样
+        # 1. 上采样到 2 倍输入尺寸，提供充足的采样率（完全与 CNO 原则对齐）
+        if self.out_size[0] > self.in_size[0]:
+            up_h = 2 * self.in_size[0]
+        else:
+            up_h = self.in_size[0]
+        if self.out_size[1] > self.in_size[1]:
+            up_w = 2 * self.in_size[1]
+        else:
+            up_w = self.in_size[1]
+            
+        x = F.interpolate(x, size=(up_h, up_w), mode='bilinear', align_corners=False, antialias=True)
         
-        # 1D 下采样，为安全可先高斯平滑再线性插值，或直接用线性+ antialias (需自实现)
-        x = self.interpolate_1d(x, size=self.w_out, dim=-1)
-        x = self.interpolate_1d(x, size=self.h_out, dim=-2)
-
+        # 2. 在高分辨率下激活，杜绝混叠
+        x = self.act(x)
+        
+        # 3. 下采样到目标尺寸
+        x = F.interpolate(x, size=self.out_size, mode='bilinear', align_corners=False, antialias=True)
         return x
-    
-    def interpolate_1d(self, x, out_size, dim):
-        """
-        对 4D 张量 x (N, C, H, W) 沿 dim (-2 或 -1) 做线性插值，目标长度 out_size。
-        零 permute，零 reshape，广播友好，速度极快。
-        """
-        if x.shape[dim] == out_size:
-            return x
 
-        in_size = x.shape[dim]
-        device = x.device
-
-        # 构造输出网格坐标 (浮点)
-        scale = (in_size - 1) / (out_size - 1) if out_size > 1 else 1.0
-        grid = torch.arange(out_size, device=device) * scale   # (out_size,)
-
-        # 左右相邻索引
-        lo = grid.floor().long().clamp(0, in_size - 1)
-        hi = (lo + 1).clamp(0, in_size - 1)
-        t = (grid - lo.float()).clamp(0.0, 1.0)                # (out_size,)
-
-        # 调整形状以便在指定 dim 上索引
-        if dim == -2:   # H 维度
-            # x: (N, C, H, W) → lo/hi/t 形状 (1, 1, out_size, 1)
-            lo = lo.view(1, 1, -1, 1)
-            hi = hi.view(1, 1, -1, 1)
-            t  = t.view(1, 1, -1, 1)
-        else:           # W 维度
-            lo = lo.view(1, 1, 1, -1)
-            hi = hi.view(1, 1, 1, -1)
-            t  = t.view(1, 1, 1, -1)
-
-        # 在目标 dim 上 gather 左右值
-        x_lo = x.gather(dim=dim, index=lo.expand(x.shape[0], x.shape[1], -1, -1) if dim==-2 else lo.expand(x.shape[0], x.shape[1], -1, -1))
-        x_hi = x.gather(dim=dim, index=hi.expand_as(x_lo))
-
-        # 线性混合
-        out = (1 - t) * x_lo + t * x_hi
-        return out
     
 class decoder(nn.Module):
     def __init__(self, modes1, modes2, width, use_hfs_block123=False, hfs_patch_size=(16, 8, 4)):

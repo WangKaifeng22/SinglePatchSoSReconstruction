@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+SRC_ROOT = Path(__file__).resolve().parents[1]
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 from utils.utils import *
 import argparse
 import csv
@@ -714,12 +719,9 @@ def _plot_branch_noise_model_comparison(
     model_labels: Sequence[str],
     output_path: str,
     xscale: str = 'linear',
+    zoom_sigma_min: float = 0.48,
+    zoom_insets: bool = True,
 ):
-    if len(summary_csv_paths) != 3:
-        raise ValueError('Exactly three summary CSV files are required (InversionNet, NIO, Fourier-DeepONet).')
-    if len(model_labels) != 3:
-        raise ValueError('Exactly three model labels are required.')
-
     metric_keys = ['mae_mean', 'rmse_mean', 'ssim_mean', 'pcc_mean', 'l2_mean']
     metric_ylabel = {
         'mae_mean': 'MAE(m/s)',
@@ -728,16 +730,27 @@ def _plot_branch_noise_model_comparison(
         'pcc_mean': 'PCC',
         'l2_mean': 'L2 relative error',
     }
+    # 噪声越大值越高的指标（曲线向右上走，空白区在左上）
+    increasing_metrics = {'mae_mean', 'rmse_mean', 'l2_mean'}
 
-    model_sigma_to_metrics: List[Dict[float, Dict[str, float]]] = []
+    n_models = len(summary_csv_paths)
+    if n_models < 1:
+        raise ValueError('At least one summary CSV is required.')
 
+    if model_labels is None or len(model_labels) != n_models:
+        model_labels = [f'Model {i + 1}' for i in range(n_models)]
+
+    marker_pool = ['o', 's', '^', 'D', 'v', 'P', 'X', '*', 'h', '<', '>', 'p']
+    colors = plt.get_cmap('tab10').colors
+    markers = [marker_pool[i % len(marker_pool)] for i in range(n_models)]
+
+    model_sigma_to_metrics = []
     for csv_path in summary_csv_paths:
         rows = _load_summary_csv(csv_path)
         branch_rows = [row for row in rows if str(row.get('scenario', '')).strip() == 'branch_noise']
         if not branch_rows:
             raise ValueError(f'No branch_noise rows found in {csv_path}')
-
-        sigma_map: Dict[float, Dict[str, float]] = {}
+        sigma_map = {}
         for row in branch_rows:
             sigma = float(row['sigma'])
             sigma_map[sigma] = {
@@ -751,17 +764,20 @@ def _plot_branch_noise_model_comparison(
 
     common_sigma = sorted(set.intersection(*[set(d.keys()) for d in model_sigma_to_metrics]))
     if not common_sigma:
-        raise ValueError('No common sigma values across all three models for branch_noise.')
+        raise ValueError(f'No common sigma values across all {n_models} model(s) for branch_noise.')
 
     xscale = str(xscale).strip().lower()
     if xscale not in {'linear', 'log'}:
-        raise ValueError(f'Unsupported xscale={xscale!r}. Expected "linear" or "log".')
+        raise ValueError(f'Unsupported xscale={xscale!r}.')
     if xscale == 'log' and any(sigma <= 0.0 for sigma in common_sigma):
         raise ValueError('Log x-axis requires all sigma values to be > 0.')
 
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
-    markers = ['o', 's', '^']
+    # 按 label 定位两个 Fourier 变体（与传入顺序无关）
+    idx_fdo = next((i for i, l in enumerate(model_labels) if l == 'Fourier-DeepONet'), None)
+    idx_fdof = next((i for i, l in enumerate(model_labels) if l == 'Fourier-DeepONet-F'), None)
+    do_zoom = zoom_insets and idx_fdo is not None and idx_fdof is not None and idx_fdo != idx_fdof
 
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
     metric_to_axis = {
         'mae_mean': axes[0, 0],
         'rmse_mean': axes[0, 1],
@@ -774,27 +790,54 @@ def _plot_branch_noise_model_comparison(
         ax = metric_to_axis[metric_key]
         for model_idx, label in enumerate(model_labels):
             ys = [model_sigma_to_metrics[model_idx][sigma][metric_key] for sigma in common_sigma]
-            ax.plot(common_sigma, ys, marker=markers[model_idx], linewidth=1.8, markersize=4.5, label=label)
-
+            ax.plot(common_sigma, ys, marker=markers[model_idx],
+                    color=colors[model_idx % len(colors)], linewidth=1.8,
+                    markersize=4.5, label=label)
         ax.set_xscale(xscale)
-        ax.set_xlabel('Noise sigma', fontsize=16)
-        ax.set_ylabel(metric_ylabel[metric_key], fontsize=16)
+        ax.set_xlabel('Noise sigma')
+        ax.set_ylabel(metric_ylabel[metric_key])
         ax.grid(True, alpha=0.3)
+
+        if do_zoom:
+            xs_zoom = [s for s in common_sigma if s >= zoom_sigma_min]
+            if len(xs_zoom) >= 2:
+                ys_fdof = [model_sigma_to_metrics[idx_fdof][s][metric_key] for s in xs_zoom]
+                ys_fdo = [model_sigma_to_metrics[idx_fdo][s][metric_key] for s in xs_zoom]
+                # 值随噪声增大的指标放左上（空白区），减小的放右下
+                rect = [0.08, 0.55, 0.44, 0.42] if metric_key in increasing_metrics else [0.08, 0.08, 0.44, 0.42]
+                axins = ax.inset_axes(rect)
+                axins.plot(xs_zoom, ys_fdof, marker=markers[idx_fdof],
+                           color=colors[idx_fdof % len(colors)], linewidth=1.6, markersize=4)
+                axins.plot(xs_zoom, ys_fdo, marker=markers[idx_fdo],
+                           color=colors[idx_fdo % len(colors)], linewidth=1.6, markersize=4)
+                axins.set_xscale(xscale)
+                lo = min(min(ys_fdof), min(ys_fdo))
+                hi = max(max(ys_fdof), max(ys_fdo))
+                span = hi - lo
+                pad = 0.18 * span if span > 0 else 0.02 * (abs(hi) + 1e-9)
+                axins.set_ylim(lo - pad, hi + pad)
+                axins.grid(True, alpha=0.3)
+                # 隐藏 inset axes 的刻度数字 + 刻度短线
+                axins.tick_params(
+                    axis='both', which='both',
+                    bottom=False, top=False, left=False, right=False,
+                    labelbottom=False, labelleft=False,
+                )
+                ax.indicate_inset_zoom(axins, edgecolor='0.4', linewidth=0.8)
 
     legend_ax = axes[0, 2]
     legend_ax.axis('off')
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    legend_ax.legend(handles, labels, loc='center', frameon=False, fontsize=18)
+    legend_ax.legend(handles, labels, loc='center', frameon=False)
 
     plt.tight_layout()
-
     out_dir = os.path.dirname(output_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
     fig.savefig(output_path, dpi=500, bbox_inches='tight')
     plt.close(fig)
-
     print(f'Comparison plot saved to: {output_path}')
+
 
 
 def _plot_fourier_scenarios_comparison(
@@ -867,14 +910,14 @@ def _plot_fourier_scenarios_comparison(
             ax.plot(common_sigma, ys, marker=markers[scenario_idx], linewidth=1.8, markersize=4.5, label=scenario_labels[scenario_idx])
 
         ax.set_xscale(xscale)
-        ax.set_xlabel('Noise sigma', fontsize=16)
-        ax.set_ylabel(metric_ylabel[metric_key], fontsize=16)
+        ax.set_xlabel('Noise sigma')
+        ax.set_ylabel(metric_ylabel[metric_key])
         ax.grid(True, alpha=0.3)
 
     legend_ax = axes[0, 2]
     legend_ax.axis('off')
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    legend_ax.legend(handles, labels, loc='center', frameon=False, fontsize=18)
+    legend_ax.legend(handles, labels, loc='center', frameon=False)
 
     plt.tight_layout()
 
@@ -913,6 +956,13 @@ def main(
     compare_fourier_output_path=None,
     compare_fourier_scenario_labels=None,
 ):
+    # 设置全局字体大小（影响刻度、标签、图例等基础大小）
+    #plt.rcParams['font.size'] = 18
+    # 也可单独精细控制
+    plt.rcParams['axes.labelsize'] = 20    # 坐标轴标签
+    plt.rcParams['legend.fontsize'] = 22   # 图例
+    plt.rcParams['xtick.labelsize'] = 18   # X轴刻度
+    plt.rcParams['ytick.labelsize'] = 18   # Y轴刻度
     if compare_fourier_summary_csv:
         output_path = compare_fourier_output_path
         if not output_path:
@@ -928,10 +978,18 @@ def main(
         return
 
     if compare_summary_csvs:
-        labels = compare_model_labels or ['InversionNet', 'NIO', 'Fourier-DeepONet-F']
+        n_models = len(compare_summary_csvs)
+        if compare_model_labels is None or len(compare_model_labels) != n_models:
+            labels = [f'Model {i + 1}' for i in range(n_models)]
+        else:
+            labels = list(compare_model_labels)
+
         output_path = compare_output_path
         if not output_path:
-            output_path = os.path.join(os.path.dirname(compare_summary_csvs[0]), 'branch_noise_model_comparison.png')
+            output_path = os.path.join(
+                os.path.dirname(compare_summary_csvs[0]),
+                'branch_noise_model_comparison.png',
+            )
 
         _plot_branch_noise_model_comparison(
             summary_csv_paths=compare_summary_csvs,
@@ -1015,7 +1073,7 @@ def main(
 
     print(f'Test Data Shape: {y_true_orig.shape}')
     print('--- 3. Building Model ---')
-    net = _build_model(model_type, model_init_kwargs, X_test, sosmap_size, device)
+    net = _build_model(model_type, model_init_kwargs, X_test, sosmap_size, device, is_original=True)
 
     print(f'--- 4. Loading Weights from {model_path} ---')
     try:

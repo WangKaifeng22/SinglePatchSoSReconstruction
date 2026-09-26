@@ -304,6 +304,7 @@ def main(model_path, result_dir, model_type="FourierDeepONet", visualize=True,
             print(f"Loaded model config from: {model_config_path}")
             print(f"Auto model_type from config: {model_type_raw}")
             print(f"Auto is_original from config: {is_original}")
+            print(f"test is {is_test}")
         except Exception as e:
             print(f"Warning: failed to read model_config.json: {e}")
 
@@ -522,9 +523,32 @@ def main(model_path, result_dir, model_type="FourierDeepONet", visualize=True,
         y_pred_norm = np.expand_dims(y_pred_norm, 0)
     y_pred_norm = y_pred_norm.reshape(-1, sosmap_size[0], sosmap_size[1])
 
+
     print(f"--- 6. Denormalizing & Metrics ---")
     y_pred_real = minmax_denormalize(y_pred_norm, VMIN, VMAX, scale=2)
     y_true_real = minmax_denormalize(y_true_orig, VMIN, VMAX, scale=2) if has_ground_truth else None
+
+    # ========== 保存 test set 第一个样本的 X 和 Y_pred ==========
+    """save_sample_dir = os.path.join(result_dir, "first_sample")
+    os.makedirs(save_sample_dir, exist_ok=True)
+
+    # 获取第一个样本的预测（这里用反归一化后的物理值更好）
+    y_pred_first = y_pred_real[0]   # 形状 (H, W)
+    np.save(os.path.join(save_sample_dir, "Y_pred_sample0.npy"), y_pred_first)
+    print(f"Saved Y_pred (sample 0) to {save_sample_dir}/Y_pred_sample0.npy, shape {y_pred_first.shape}")
+
+    # 根据模型类型保存 X
+    if model_type in {"FourierDeepONet", "BranchTrunkFlower"}:
+        # X_test = (X_branch, X_trunk)
+        x_branch_first = X_test[0][0]   # 第0个样本的 branch
+        x_trunk_first  = X_test[1][0]   # 第0个样本的 trunk
+        x_trunk_first = minmax_denormalize(x_trunk_first,-0.04,0.04)
+        x_trunk_first = x_trunk_first.reshape((2, 32), order='F')
+        np.savez(os.path.join(save_sample_dir, "X_sample0.npz"), time_data_cat=x_branch_first, sensor_coords=x_trunk_first)
+        print(f"Saved X_branch (sample 0) to .../X_sample0.npz, shape {x_branch_first.shape}")
+        print(f"Saved X_trunk  (sample 0) to .../X_sample0.npz, shape {x_trunk_first.shape}")
+
+    return"""
 
     mae_mean = mae_std = rmse_mean = rmse_std = ssim_mean = ssim_std = pcc_mean = pcc_std = l2_mean = l2_std = 0.0
     if has_ground_truth:
@@ -603,12 +627,12 @@ def main(model_path, result_dir, model_type="FourierDeepONet", visualize=True,
 
 
 if __name__ == "__main__":
-    MODEL_PATH = "/home/wkf/wkf_kwave/src/model_50K_5x2_configs_test2_testversion_0.140625-0.453125/model-312600.pt"
-    result_dir = "/home/wkf/wkf_kwave/src/model_50K_5x2_configs_test2_testversion_0.140625-0.453125/test_result_312600"
+    MODEL_PATH = "/home/wkf/wkf_kwave/src/model_50K_5x2_configs_test4_CNO_2dinterp/model-179000.pt"
+    result_dir = "/home/wkf/wkf_kwave/src/model_50K_5x2_configs_test4_CNO_2dinterp/test_result_179000"
     main(model_path=MODEL_PATH, result_dir = result_dir,
      model_type="FourierDeepONet", visualize=True, batch_size=32,
          split_ratio=0.9, total_data_num = 50000, is_deeponet=True
-         ,sosmap_size=(80, 80), samples_plot=100, mm_per_pixel=0.1,
+         ,sosmap_size=(80, 80), samples_plot=50, mm_per_pixel=0.1,
          cache_h5_path="/home/wkf/kwave-python/dataset/dataset_shuffle_0.140625-0.453125.h5",
          cache_meta_path="/home/wkf/kwave-python/dataset/dataset_shuffle_0.140625-0.453125_meta.json",
          has_ground_truth=True)
