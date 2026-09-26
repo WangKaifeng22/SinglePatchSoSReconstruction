@@ -1,4 +1,4 @@
-# UndergraduateThesis-DLPart
+# SinglePatchSoSReconstruction
 
 Deep learning experiments for ultrasound computed tomography (USCT) speed-of-sound reconstruction.
 This repository contains training, evaluation, benchmarking, and HDF5 preprocessing pipelines for multiple model families:
